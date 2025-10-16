@@ -1,189 +1,149 @@
 document.addEventListener("DOMContentLoaded", () => {
-    console.log("[DEBUG] DOM loaded, setting up form listener");
     const form = document.getElementById("bgcForm");
 
-    form.addEventListener("submit", function(event) {
+    form.addEventListener("submit", function (event) {
         event.preventDefault();
-        console.log("[DEBUG] Form submitted");
         handleBGCFormSubmit();
     });
 });
 
-// Cloudflare Worker proxy URL
-const proxyUrl = "https://backendquickbgc.kubo-lanco.workers.dev/?url=";
+const WORKER_URL = "https://backendquickbgc.kubo-lanco.workers.dev/?url=";
 
 async function handleBGCFormSubmit() {
     const usernameOrId = document.getElementById("username").value.trim();
-    const platform     = document.getElementById("platform").value;
-    const reason       = document.getElementById("reason").value.trim();
+    const platform = document.getElementById("platform").value;
+    const reason = document.getElementById("reason").value.trim();
 
-    console.log("[DEBUG] Form values:", { usernameOrId, platform, reason });
-
-    if (!usernameOrId || !reason) {
-        console.log("[DEBUG] Missing username or reason, aborting");
-        return;
-    }
+    if (!usernameOrId || !reason) return;
 
     try {
         if (platform.toLowerCase() === "roblox") {
-            const userInfo = await getRobloxUserInfo(usernameOrId);
-            console.log("[DEBUG] Fetched userInfo:", userInfo);
+            const userInfo = await getRobloxUserData(usernameOrId);
             if (userInfo) await generatePDF(userInfo, reason, platform);
-        } else {
-            console.log("[DEBUG] Platform not supported:", platform);
         }
     } catch (err) {
-        console.error("[DEBUG] Error in handleBGCFormSubmit:", err);
+        console.error("[ERROR] handleBGCFormSubmit:", err);
     }
 }
 
-// Fetch Roblox user info safely
-async function getRobloxUserInfo(input) {
+async function fetchFromWorker(url) {
+    const response = await fetch(`${WORKER_URL}${encodeURIComponent(url)}`);
+    if (!response.ok) throw new Error(`Failed fetch: ${url}`);
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) return await response.json();
+    return await response.text();
+}
+
+async function getRobloxUserData(input) {
     let userId = input;
 
-    try {
-        // Resolve username to ID if needed
-        if (isNaN(input)) {
-            const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`);
-            console.log("[DEBUG] Searching username via worker:", proxyUrl + searchUrl);
-            const searchRes = await fetch(proxyUrl + searchUrl);
-            const searchData = await searchRes.json();
-            console.log("[DEBUG] Search response:", searchData);
-            if (!searchData.data || searchData.data.length === 0) return null;
-            userId = searchData.data[0].id;
-            console.log("[DEBUG] Resolved user ID:", userId);
-        }
-
-        // User basic info
-        const userRes = await fetch(proxyUrl + encodeURIComponent(`https://users.roblox.com/v1/users/${userId}`));
-        const userData = await userRes.json();
-        console.log("[DEBUG] User data:", userData);
-
-        const description = userData.description || "N/A";
-
-        // Friends count
-        let friendsCount = 0;
-        try {
-            const friendsRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/friends`));
-            const friendsData = await friendsRes.json();
-            friendsCount = friendsData.count ?? 0;
-        } catch { friendsCount = 0; }
-
-        // Followers count
-        let followersCount = 0;
-        try {
-            const followersRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/followers`));
-            const followersData = await followersRes.json();
-            followersCount = followersData.count ?? 0;
-        } catch { followersCount = 0; }
-
-        // Following count
-        let followingCount = 0;
-        try {
-            const followingRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/followings`));
-            const followingData = await followingRes.json();
-            followingCount = followingData.count ?? 0;
-        } catch { followingCount = 0; }
-
-        // Groups count
-        let groupsCount = 0;
-        try {
-            const groupsRes = await fetch(proxyUrl + encodeURIComponent(`https://groups.roblox.com/v1/users/${userId}/groups/roles`));
-            const groupsData = await groupsRes.json();
-            groupsCount = groupsData.data?.length ?? 0;
-        } catch { groupsCount = 0; }
-
-        // Badges count
-        let badgesCount = 0;
-        try {
-            const badgesRes = await fetch(proxyUrl + encodeURIComponent(`https://badges.roblox.com/v1/users/${userId}/badges`));
-            const badgesData = await badgesRes.json();
-            badgesCount = badgesData.data?.length ?? 0;
-        } catch { badgesCount = 0; }
-
-        // Avatar URL
-        let avatarUrl = `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`;
-
-        return {
-            id: userData.id,
-            username: userData.name,
-            displayName: userData.displayName,
-            created: userData.created,
-            description: description,
-            banned: userData.isBanned,
-            friendsCount,
-            followersCount,
-            followingCount,
-            connections: friendsCount + followersCount + followingCount,
-            groupsCount,
-            badgesCount,
-            avatar: avatarUrl
-        };
-
-    } catch (err) {
-        console.error("[DEBUG] Error fetching Roblox user info:", err);
-        return null;
+    // Resolve username → userId
+    if (isNaN(input)) {
+        const searchData = await fetchFromWorker(
+            `https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`
+        );
+        if (!searchData.data || searchData.data.length === 0) return null;
+        userId = searchData.data[0].id;
     }
+
+    // Basic user data
+    const userData = await fetchFromWorker(`https://users.roblox.com/v1/users/${userId}`);
+
+    // Avatar (fixed format)
+    const avatarData = await fetchFromWorker(
+        `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
+    );
+
+    // Friends
+    let friendsCount = 0;
+    try {
+        const friendsData = await fetchFromWorker(
+            `https://friends.roblox.com/v1/users/${userId}/friends/count`
+        );
+        friendsCount = friendsData.count || 0;
+    } catch {}
+
+    // Groups
+    let groupsData = [];
+    try {
+        const groups = await fetchFromWorker(
+            `https://groups.roblox.com/v2/users/${userId}/groups/roles`
+        );
+        groupsData = groups.data ? groups.data.map(g => g.group.name) : [];
+    } catch {}
+
+    // Badges
+    let badgesCount = 0;
+    try {
+        const badges = await fetchFromWorker(
+            `https://badges.roblox.com/v1/users/${userId}/badges?limit=100`
+        );
+        badgesCount = badges.data ? badges.data.length : 0;
+    } catch {}
+
+    return {
+        id: userData.id,
+        username: userData.name,
+        displayName: userData.displayName,
+        created: userData.created,
+        banned: userData.isBanned,
+        avatar: avatarData?.data?.[0]?.imageUrl || null,
+        friendsCount,
+        groups: groupsData,
+        badgesCount,
+    };
 }
 
-// Convert avatar to base64 for PDF, safely
 async function loadImageAsDataURL(url) {
-    if (!url) return null;
     try {
-        const response = await fetch(proxyUrl + encodeURIComponent(url));
-        if (!response.ok) return null; // failed fetch
+        const response = await fetch(url);
         const blob = await response.blob();
-        if (!blob || blob.size === 0) return null; // empty image
-
         return await new Promise(resolve => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result);
             reader.readAsDataURL(blob);
         });
-    } catch (err) {
-        console.error("[DEBUG] Error loading avatar image:", err);
+    } catch {
         return null;
     }
 }
 
-// Generate and download PDF with WARNING
 async function generatePDF(userInfo, reason, platform) {
     if (!userInfo) return;
-
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    // RED WARNING at the top
-    doc.setTextColor(255, 0, 0); // red
-    doc.setFontSize(14);
-    doc.text("WARNING: This tool can be inaccurate.", 10, 15);
-    doc.setTextColor(0, 0, 0); // reset to black
-
-    doc.setFontSize(16);
-    doc.text(`${platform} Background Check Report`, 10, 30);
+    // Red warning
+    doc.setTextColor(255, 0, 0);
     doc.setFontSize(12);
-    doc.text(`Reason: ${reason}`, 10, 40);
-    doc.text(`ID: ${userInfo.id}`, 10, 50);
-    doc.text(`Username: ${userInfo.username}`, 10, 60);
-    doc.text(`Display Name: ${userInfo.displayName}`, 10, 70);
-    doc.text(`Created: ${new Date(userInfo.created).toLocaleString()}`, 10, 80);
-    doc.text(`Banned: ${userInfo.banned}`, 10, 90);
-    doc.text(`Description: ${userInfo.description}`, 10, 100);
-    doc.text(`Connections: ${userInfo.connections}`, 10, 110);
-    doc.text(`Friends: ${userInfo.friendsCount}`, 10, 120);
-    doc.text(`Followers: ${userInfo.followersCount}`, 10, 130);
-    doc.text(`Following: ${userInfo.followingCount}`, 10, 140);
-    doc.text(`Groups: ${userInfo.groupsCount}`, 10, 150);
-    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 160);
+    doc.text("⚠ WARNING: This tool can be inaccurate.", 10, 15);
 
-    // Safely add avatar
+    // Title
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(16);
+    doc.text(`${platform} Background Check Report`, 10, 25);
+
+    // Info
+    doc.setFontSize(12);
+    doc.text(`Reason: ${reason}`, 10, 35);
+    doc.text(`ID: ${userInfo.id}`, 10, 45);
+    doc.text(`Username: ${userInfo.username}`, 10, 55);
+    doc.text(`Display Name: ${userInfo.displayName}`, 10, 65);
+    doc.text(`Created: ${new Date(userInfo.created).toLocaleString()}`, 10, 75);
+    doc.text(`Banned: ${userInfo.banned}`, 10, 85);
+    doc.text(`Friends: ${userInfo.friendsCount}`, 10, 95);
+    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 105);
+
+    // Groups (truncate if too long)
+    const groups = userInfo.groups.length
+        ? userInfo.groups.slice(0, 5).join(", ") +
+          (userInfo.groups.length > 5 ? " ..." : "")
+        : "None";
+    doc.text(`Groups: ${groups}`, 10, 115);
+
+    // Avatar image
     const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
-    if (avatarDataURL && avatarDataURL.startsWith("data:image/png;base64,")) {
-        doc.addImage(avatarDataURL, "PNG", 150, 30, 40, 40);
-    } else {
-        console.warn("[DEBUG] Avatar image invalid, skipping in PDF.");
-    }
+    if (avatarDataURL) doc.addImage(avatarDataURL, "PNG", 150, 20, 40, 40);
 
     doc.save(`${userInfo.username}_BGC_Report.pdf`);
-    console.log("[DEBUG] PDF saved for user:", userInfo.username);
 }
