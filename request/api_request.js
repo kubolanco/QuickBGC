@@ -44,7 +44,7 @@ async function getRobloxUserByUsername(input) {
     try {
         // If input is not numeric, resolve username to ID
         if (isNaN(input)) {
-            const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=1`);
+            const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`);
             console.log("[DEBUG] Searching username via proxy:", proxyUrl + searchUrl);
             const searchRes = await fetch(proxyUrl + searchUrl);
             const searchData = await searchRes.json();
