@@ -28,6 +28,7 @@ async function handleBGCFormSubmit() {
 
 async function getRobloxUserByUsername(input) {
     let userId = input;
+    const proxyUrl = "https://api.allorigins.win/raw?url=";
 
     
     if (isNaN(input)) {
