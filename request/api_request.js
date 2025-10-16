@@ -93,7 +93,7 @@ async function getRobloxUserInfo(input) {
             badgesCount = badgesData.data?.length ?? 0;
         } catch { badgesCount = 0; }
 
-        // Avatar
+        // Avatar URL
         let avatarUrl = `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`;
 
         return {
@@ -116,12 +116,15 @@ async function getRobloxUserInfo(input) {
     }
 }
 
-// Convert avatar to base64 for PDF
+// Convert avatar to base64 for PDF, safely
 async function loadImageAsDataURL(url) {
     if (!url) return null;
     try {
         const response = await fetch(proxyUrl + encodeURIComponent(url));
+        if (!response.ok) return null; // failed fetch
         const blob = await response.blob();
+        if (!blob || blob.size === 0) return null; // empty image
+
         return await new Promise(resolve => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result);
@@ -155,8 +158,13 @@ async function generatePDF(userInfo, reason, platform) {
     doc.text(`Groups: ${userInfo.groupsCount}`, 10, 120);
     doc.text(`Badges: ${userInfo.badgesCount}`, 10, 130);
 
+    // Safely add avatar
     const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
-    if (avatarDataURL) doc.addImage(avatarDataURL, "PNG", 150, 20, 40, 40);
+    if (avatarDataURL && avatarDataURL.startsWith("data:image/png;base64,")) {
+        doc.addImage(avatarDataURL, "PNG", 150, 20, 40, 40);
+    } else {
+        console.warn("[DEBUG] Avatar image invalid, skipping in PDF.");
+    }
 
     doc.save(`${userInfo.username}_BGC_Report.pdf`);
     console.log("[DEBUG] PDF saved for user:", userInfo.username);
