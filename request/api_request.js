@@ -17,31 +17,32 @@ async function handleBGCFormSubmit() {
     try {
         if (platform.toLowerCase() === "roblox") {
             const userInfo = await getRobloxUserByUsername(usernameOrId);
-            await generatePDF(userInfo, reason, platform);
-        } 
+            if (userInfo) await generatePDF(userInfo, reason, platform);
+        }
         
     } catch {
-       
+        // silently fail on errors
     }
 }
 
-
+// Fetch Roblox user info by username or ID using AllOrigins proxy
 async function getRobloxUserByUsername(input) {
     let userId = input;
     const proxyUrl = "https://api.allorigins.win/raw?url=";
 
-    
+   
     if (isNaN(input)) {
-        const searchRes = await fetch(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=1`);
+        const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=1`);
+        const searchRes = await fetch(proxyUrl + searchUrl);
         const searchData = await searchRes.json();
         if (!searchData.data || searchData.data.length === 0) return null;
         userId = searchData.data[0].id;
     }
 
-    const userRes = await fetch(`https://users.roblox.com/v1/users/${userId}`);
+    const userRes = await fetch(proxyUrl + encodeURIComponent(`https://users.roblox.com/v1/users/${userId}`));
     const userData = await userRes.json();
 
-    const avatarRes = await fetch(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`);
+    const avatarRes = await fetch(proxyUrl + encodeURIComponent(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`));
     const avatarData = await avatarRes.json();
 
     return {
@@ -54,7 +55,7 @@ async function getRobloxUserByUsername(input) {
     };
 }
 
-
+// Convert avatar URL to base64 for PDF
 async function loadImageAsDataURL(url) {
     try {
         const response = await fetch(url);
@@ -69,8 +70,9 @@ async function loadImageAsDataURL(url) {
     }
 }
 
+
 async function generatePDF(userInfo, reason, platform) {
-    if (!userInfo) return; 
+    if (!userInfo) return;
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
