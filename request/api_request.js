@@ -77,6 +77,14 @@ async function getRobloxUserInfo(input) {
             followersCount = followersData.count ?? 0;
         } catch { followersCount = 0; }
 
+        // Following count
+        let followingCount = 0;
+        try {
+            const followingRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/followings`));
+            const followingData = await followingRes.json();
+            followingCount = followingData.count ?? 0;
+        } catch { followingCount = 0; }
+
         // Groups count
         let groupsCount = 0;
         try {
@@ -105,6 +113,8 @@ async function getRobloxUserInfo(input) {
             banned: userData.isBanned,
             friendsCount,
             followersCount,
+            followingCount,
+            connections: friendsCount + followersCount + followingCount,
             groupsCount,
             badgesCount,
             avatar: avatarUrl
@@ -153,10 +163,12 @@ async function generatePDF(userInfo, reason, platform) {
     doc.text(`Created: ${new Date(userInfo.created).toLocaleString()}`, 10, 70);
     doc.text(`Banned: ${userInfo.banned}`, 10, 80);
     doc.text(`Description: ${userInfo.description}`, 10, 90);
-    doc.text(`Friends: ${userInfo.friendsCount}`, 10, 100);
-    doc.text(`Followers: ${userInfo.followersCount}`, 10, 110);
-    doc.text(`Groups: ${userInfo.groupsCount}`, 10, 120);
-    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 130);
+    doc.text(`Connections: ${userInfo.connections}`, 10, 100);
+    doc.text(`Friends: ${userInfo.friendsCount}`, 10, 110);
+    doc.text(`Followers: ${userInfo.followersCount}`, 10, 120);
+    doc.text(`Following: ${userInfo.followingCount}`, 10, 130);
+    doc.text(`Groups: ${userInfo.groupsCount}`, 10, 140);
+    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 150);
 
     // Safely add avatar
     const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
