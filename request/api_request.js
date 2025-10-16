@@ -44,7 +44,7 @@ async function getRobloxUserInfo(input) {
     try {
         // Resolve username to ID if needed
         if (isNaN(input)) {
-            const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=1`);
+            const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`);
             console.log("[DEBUG] Searching username via worker:", proxyUrl + searchUrl);
             const searchRes = await fetch(proxyUrl + searchUrl);
             const searchData = await searchRes.json();
