@@ -37,7 +37,7 @@ async function fetchFromWorker(url) {
 async function getRobloxUserData(input) {
     let userId = input;
 
-    // Resolve username → userId
+    // Resolve username to ID
     if (isNaN(input)) {
         const searchData = await fetchFromWorker(
             `https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`
@@ -46,10 +46,10 @@ async function getRobloxUserData(input) {
         userId = searchData.data[0].id;
     }
 
-    // Basic user data
+    // Basic user info
     const userData = await fetchFromWorker(`https://users.roblox.com/v1/users/${userId}`);
 
-    // Avatar (fixed format)
+    // Avatar
     const avatarData = await fetchFromWorker(
         `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
     );
@@ -64,12 +64,14 @@ async function getRobloxUserData(input) {
     } catch {}
 
     // Groups
-    let groupsData = [];
+    let groupsList = [];
     try {
         const groups = await fetchFromWorker(
             `https://groups.roblox.com/v2/users/${userId}/groups/roles`
         );
-        groupsData = groups.data ? groups.data.map(g => g.group.name) : [];
+        groupsList = groups.data
+            ? groups.data.map(g => `${g.group.name} (${g.role.name})`)
+            : [];
     } catch {}
 
     // Badges
@@ -81,16 +83,37 @@ async function getRobloxUserData(input) {
         badgesCount = badges.data ? badges.data.length : 0;
     } catch {}
 
+    // Favorite games count
+    let favoritesCount = 0;
+    try {
+        const favorites = await fetchFromWorker(
+            `https://games.roblox.com/v2/users/${userId}/favorite/games`
+        );
+        favoritesCount = favorites.data ? favorites.data.length : 0;
+    } catch {}
+
+    // Status
+    let userStatus = "";
+    try {
+        const status = await fetchFromWorker(
+            `https://users.roblox.com/v1/users/${userId}/status`
+        );
+        userStatus = status.status || "";
+    } catch {}
+
     return {
         id: userData.id,
         username: userData.name,
         displayName: userData.displayName,
+        description: userData.description || "None",
         created: userData.created,
         banned: userData.isBanned,
         avatar: avatarData?.data?.[0]?.imageUrl || null,
         friendsCount,
-        groups: groupsData,
         badgesCount,
+        favoritesCount,
+        userStatus,
+        groupsList
     };
 }
 
@@ -113,37 +136,64 @@ async function generatePDF(userInfo, reason, platform) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    // Red warning
+    // Warning header
     doc.setTextColor(255, 0, 0);
     doc.setFontSize(12);
     doc.text("⚠ WARNING: This tool can be inaccurate.", 10, 15);
 
     // Title
     doc.setTextColor(0, 0, 0);
-    doc.setFontSize(16);
-    doc.text(`${platform} Background Check Report`, 10, 25);
+    doc.setFontSize(18);
+    doc.text(`${platform} Background Check Report`, 105, 30, { align: "center" });
 
-    // Info
+    // Divider
+    doc.setLineWidth(0.5);
+    doc.line(10, 35, 200, 35);
+
     doc.setFontSize(12);
-    doc.text(`Reason: ${reason}`, 10, 35);
-    doc.text(`ID: ${userInfo.id}`, 10, 45);
-    doc.text(`Username: ${userInfo.username}`, 10, 55);
-    doc.text(`Display Name: ${userInfo.displayName}`, 10, 65);
-    doc.text(`Created: ${new Date(userInfo.created).toLocaleString()}`, 10, 75);
-    doc.text(`Banned: ${userInfo.banned}`, 10, 85);
-    doc.text(`Friends: ${userInfo.friendsCount}`, 10, 95);
-    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 105);
+    let y = 45;
+    const lineHeight = 8;
 
-    // Groups (truncate if too long)
-    const groups = userInfo.groups.length
-        ? userInfo.groups.slice(0, 5).join(", ") +
-          (userInfo.groups.length > 5 ? " ..." : "")
-        : "None";
-    doc.text(`Groups: ${groups}`, 10, 115);
+    const fields = [
+        ["Reason", reason],
+        ["ID", userInfo.id],
+        ["Username", userInfo.username],
+        ["Display Name", userInfo.displayName],
+        ["Status", userInfo.userStatus || "None"],
+        ["Description", userInfo.description],
+        ["Created", new Date(userInfo.created).toLocaleString()],
+        ["Banned", userInfo.banned],
+        ["Friends", userInfo.friendsCount],
+        ["Badges", userInfo.badgesCount],
+        ["Favorite Games", userInfo.favoritesCount],
+        ["Groups", userInfo.groupsList.length ? userInfo.groupsList.join(", ") : "None"]
+    ];
 
-    // Avatar image
+    fields.forEach(([label, value]) => {
+        doc.setFont("helvetica", "bold");
+        doc.text(`${label}:`, 15, y);
+        doc.setFont("helvetica", "normal");
+
+        const splitValue = doc.splitTextToSize(String(value), 170);
+        doc.text(splitValue, 45, y);
+        y += splitValue.length * (lineHeight - 2);
+        y += 2;
+        if (y > 260) { // new page if too long
+            doc.addPage();
+            y = 20;
+        }
+    });
+
+    // Avatar (top-right)
     const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
-    if (avatarDataURL) doc.addImage(avatarDataURL, "PNG", 150, 20, 40, 40);
+    if (avatarDataURL) {
+        doc.addImage(avatarDataURL, "PNG", 160, 40, 35, 35);
+    }
+
+    // Footer
+    doc.setFontSize(10);
+    doc.setTextColor(150, 150, 150);
+    doc.text("Generated by QuickBGC • Roblox Public API Data", 10, 285);
 
     doc.save(`${userInfo.username}_BGC_Report.pdf`);
 }
