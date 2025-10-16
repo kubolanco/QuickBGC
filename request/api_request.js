@@ -37,7 +37,7 @@ async function fetchFromWorker(url) {
 async function getRobloxUserData(input) {
     let userId = input;
 
-    // Resolve username to ID
+    // Resolve username → ID
     if (isNaN(input)) {
         const searchData = await fetchFromWorker(
             `https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`
@@ -92,15 +92,6 @@ async function getRobloxUserData(input) {
         favoritesCount = favorites.data ? favorites.data.length : 0;
     } catch {}
 
-    // Status
-    let userStatus = "";
-    try {
-        const status = await fetchFromWorker(
-            `https://users.roblox.com/v1/users/${userId}/status`
-        );
-        userStatus = status.status || "";
-    } catch {}
-
     return {
         id: userData.id,
         username: userData.name,
@@ -112,7 +103,6 @@ async function getRobloxUserData(input) {
         friendsCount,
         badgesCount,
         favoritesCount,
-        userStatus,
         groupsList
     };
 }
@@ -136,7 +126,7 @@ async function generatePDF(userInfo, reason, platform) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    // Warning header
+    // Red warning header
     doc.setTextColor(255, 0, 0);
     doc.setFontSize(12);
     doc.text("⚠ WARNING: This tool can be inaccurate.", 10, 15);
@@ -159,7 +149,6 @@ async function generatePDF(userInfo, reason, platform) {
         ["ID", userInfo.id],
         ["Username", userInfo.username],
         ["Display Name", userInfo.displayName],
-        ["Status", userInfo.userStatus || "None"],
         ["Description", userInfo.description],
         ["Created", new Date(userInfo.created).toLocaleString()],
         ["Banned", userInfo.banned],
@@ -178,13 +167,13 @@ async function generatePDF(userInfo, reason, platform) {
         doc.text(splitValue, 45, y);
         y += splitValue.length * (lineHeight - 2);
         y += 2;
-        if (y > 260) { // new page if too long
+        if (y > 260) { // new page if content is too long
             doc.addPage();
             y = 20;
         }
     });
 
-    // Avatar (top-right)
+    // Avatar top-right
     const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
     if (avatarDataURL) {
         doc.addImage(avatarDataURL, "PNG", 160, 40, 35, 35);
