@@ -93,14 +93,8 @@ async function getRobloxUserInfo(input) {
             badgesCount = badgesData.data?.length ?? 0;
         } catch { badgesCount = 0; }
 
-        // Attempt avatar fetch
-        let avatarUrl = "";
-        try {
-            avatarUrl = `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`;
-            // Just keep URL, fetch in PDF function
-        } catch {
-            avatarUrl = ""; // fallback
-        }
+        // Avatar
+        let avatarUrl = `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`;
 
         return {
             id: userData.id,
@@ -133,7 +127,8 @@ async function loadImageAsDataURL(url) {
             reader.onloadend = () => resolve(reader.result);
             reader.readAsDataURL(blob);
         });
-    } catch {
+    } catch (err) {
+        console.error("[DEBUG] Error loading avatar image:", err);
         return null;
     }
 }
