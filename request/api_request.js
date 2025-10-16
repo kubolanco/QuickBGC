@@ -146,34 +146,40 @@ async function loadImageAsDataURL(url) {
     }
 }
 
-// Generate and download PDF
+// Generate and download PDF with WARNING
 async function generatePDF(userInfo, reason, platform) {
     if (!userInfo) return;
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
+    // RED WARNING at the top
+    doc.setTextColor(255, 0, 0); // red
+    doc.setFontSize(14);
+    doc.text("WARNING: This tool can be inaccurate.", 10, 15);
+    doc.setTextColor(0, 0, 0); // reset to black
+
     doc.setFontSize(16);
-    doc.text(`${platform} Background Check Report`, 10, 20);
+    doc.text(`${platform} Background Check Report`, 10, 30);
     doc.setFontSize(12);
-    doc.text(`Reason: ${reason}`, 10, 30);
-    doc.text(`ID: ${userInfo.id}`, 10, 40);
-    doc.text(`Username: ${userInfo.username}`, 10, 50);
-    doc.text(`Display Name: ${userInfo.displayName}`, 10, 60);
-    doc.text(`Created: ${new Date(userInfo.created).toLocaleString()}`, 10, 70);
-    doc.text(`Banned: ${userInfo.banned}`, 10, 80);
-    doc.text(`Description: ${userInfo.description}`, 10, 90);
-    doc.text(`Connections: ${userInfo.connections}`, 10, 100);
-    doc.text(`Friends: ${userInfo.friendsCount}`, 10, 110);
-    doc.text(`Followers: ${userInfo.followersCount}`, 10, 120);
-    doc.text(`Following: ${userInfo.followingCount}`, 10, 130);
-    doc.text(`Groups: ${userInfo.groupsCount}`, 10, 140);
-    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 150);
+    doc.text(`Reason: ${reason}`, 10, 40);
+    doc.text(`ID: ${userInfo.id}`, 10, 50);
+    doc.text(`Username: ${userInfo.username}`, 10, 60);
+    doc.text(`Display Name: ${userInfo.displayName}`, 10, 70);
+    doc.text(`Created: ${new Date(userInfo.created).toLocaleString()}`, 10, 80);
+    doc.text(`Banned: ${userInfo.banned}`, 10, 90);
+    doc.text(`Description: ${userInfo.description}`, 10, 100);
+    doc.text(`Connections: ${userInfo.connections}`, 10, 110);
+    doc.text(`Friends: ${userInfo.friendsCount}`, 10, 120);
+    doc.text(`Followers: ${userInfo.followersCount}`, 10, 130);
+    doc.text(`Following: ${userInfo.followingCount}`, 10, 140);
+    doc.text(`Groups: ${userInfo.groupsCount}`, 10, 150);
+    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 160);
 
     // Safely add avatar
     const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
     if (avatarDataURL && avatarDataURL.startsWith("data:image/png;base64,")) {
-        doc.addImage(avatarDataURL, "PNG", 150, 20, 40, 40);
+        doc.addImage(avatarDataURL, "PNG", 150, 30, 40, 40);
     } else {
         console.warn("[DEBUG] Avatar image invalid, skipping in PDF.");
     }
