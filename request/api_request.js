@@ -9,6 +9,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
+// Cloudflare Worker proxy URL
+const proxyUrl = "https://backendquickbgc.kubo-lanco.workers.dev/?url=";
+
 async function handleBGCFormSubmit() {
     const usernameOrId = document.getElementById("username").value.trim();
     const platform     = document.getElementById("platform").value;
@@ -23,8 +26,8 @@ async function handleBGCFormSubmit() {
 
     try {
         if (platform.toLowerCase() === "roblox") {
-            const userInfo = await getRobloxFullInfo(usernameOrId);
-            console.log("[DEBUG] Full Roblox info:", userInfo);
+            const userInfo = await getRobloxUserInfo(usernameOrId);
+            console.log("[DEBUG] Fetched userInfo:", userInfo);
             if (userInfo) await generatePDF(userInfo, reason, platform);
         } else {
             console.log("[DEBUG] Platform not supported:", platform);
@@ -34,16 +37,15 @@ async function handleBGCFormSubmit() {
     }
 }
 
-// Fetch all public Roblox info using AllOrigins proxy
-async function getRobloxFullInfo(input) {
-    const proxyUrl = "https://api.allorigins.win/raw?url=";
+// Fetch Roblox user info safely
+async function getRobloxUserInfo(input) {
     let userId = input;
 
     try {
         // Resolve username to ID if needed
         if (isNaN(input)) {
-            const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`);
-            console.log("[DEBUG] Searching username via proxy:", proxyUrl + searchUrl);
+            const searchUrl = encodeURIComponent(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=1`);
+            console.log("[DEBUG] Searching username via worker:", proxyUrl + searchUrl);
             const searchRes = await fetch(proxyUrl + searchUrl);
             const searchData = await searchRes.json();
             console.log("[DEBUG] Search response:", searchData);
@@ -57,93 +59,88 @@ async function getRobloxFullInfo(input) {
         const userData = await userRes.json();
         console.log("[DEBUG] User data:", userData);
 
-        // Avatar
-        const avatarRes = await fetch(proxyUrl + encodeURIComponent(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`));
-        const avatarData = await avatarRes.json();
-        console.log("[DEBUG] Avatar data:", avatarData);
-
-        // Description
-        const descRes = await fetch(proxyUrl + encodeURIComponent(`https://users.roblox.com/v1/users/${userId}`));
-        const descData = await descRes.json();
-        console.log("[DEBUG] Description:", descData.description);
+        const description = userData.description || "N/A";
 
         // Friends count
-        const friendsRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/friends`));
-        const friendsData = await friendsRes.json();
-        console.log("[DEBUG] Friends data:", friendsData);
+        let friendsCount = 0;
+        try {
+            const friendsRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/friends`));
+            const friendsData = await friendsRes.json();
+            friendsCount = friendsData.count ?? 0;
+        } catch { friendsCount = 0; }
 
         // Followers count
-        const followersRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/followers`));
-        const followersData = await followersRes.json();
-        console.log("[DEBUG] Followers data:", followersData);
+        let followersCount = 0;
+        try {
+            const followersRes = await fetch(proxyUrl + encodeURIComponent(`https://friends.roblox.com/v1/users/${userId}/followers`));
+            const followersData = await followersRes.json();
+            followersCount = followersData.count ?? 0;
+        } catch { followersCount = 0; }
 
-        // Groups
-        const groupsRes = await fetch(proxyUrl + encodeURIComponent(`https://groups.roblox.com/v1/users/${userId}/groups/roles`));
-        const groupsData = await groupsRes.json();
-        console.log("[DEBUG] Groups data:", groupsData);
+        // Groups count
+        let groupsCount = 0;
+        try {
+            const groupsRes = await fetch(proxyUrl + encodeURIComponent(`https://groups.roblox.com/v1/users/${userId}/groups/roles`));
+            const groupsData = await groupsRes.json();
+            groupsCount = groupsData.data?.length ?? 0;
+        } catch { groupsCount = 0; }
 
-        // Badges
-        const badgesRes = await fetch(proxyUrl + encodeURIComponent(`https://badges.roblox.com/v1/users/${userId}/badges`));
-        const badgesData = await badgesRes.json();
-        console.log("[DEBUG] Badges data:", badgesData);
+        // Badges count
+        let badgesCount = 0;
+        try {
+            const badgesRes = await fetch(proxyUrl + encodeURIComponent(`https://badges.roblox.com/v1/users/${userId}/badges`));
+            const badgesData = await badgesRes.json();
+            badgesCount = badgesData.data?.length ?? 0;
+        } catch { badgesCount = 0; }
 
-        // Presence
-        const presenceRes = await fetch(proxyUrl + encodeURIComponent(`https://presence.roblox.com/v1/presence/users`), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userIds: [userId] })
-        });
-        const presenceData = await presenceRes.json();
-        console.log("[DEBUG] Presence data:", presenceData);
+        // Attempt avatar fetch
+        let avatarUrl = "";
+        try {
+            avatarUrl = `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=48x48&format=Png`;
+            // Just keep URL, fetch in PDF function
+        } catch {
+            avatarUrl = ""; // fallback
+        }
 
         return {
             id: userData.id,
             username: userData.name,
             displayName: userData.displayName,
             created: userData.created,
-            description: descData.description,
+            description: description,
             banned: userData.isBanned,
-            avatar: avatarData.data[0].imageUrl,
-            friendsCount: friendsData.count ?? friendsData.data?.length ?? 0,
-            followersCount: followersData.count ?? followersData.data?.length ?? 0,
-            groups: groupsData,
-            badges: badgesData.data,
-            presence: presenceData.userPresences?.[0] ?? {}
+            friendsCount,
+            followersCount,
+            groupsCount,
+            badgesCount,
+            avatar: avatarUrl
         };
+
     } catch (err) {
-        console.error("[DEBUG] Error fetching full Roblox info:", err);
+        console.error("[DEBUG] Error fetching Roblox user info:", err);
         return null;
     }
 }
 
-// Convert avatar URL to base64 for PDF
+// Convert avatar to base64 for PDF
 async function loadImageAsDataURL(url) {
-    console.log("[DEBUG] Loading image as Data URL:", url);
+    if (!url) return null;
     try {
-        const response = await fetch(url);
+        const response = await fetch(proxyUrl + encodeURIComponent(url));
         const blob = await response.blob();
         return await new Promise(resolve => {
             const reader = new FileReader();
-            reader.onloadend = () => {
-                console.log("[DEBUG] Image converted to Data URL");
-                resolve(reader.result);
-            };
+            reader.onloadend = () => resolve(reader.result);
             reader.readAsDataURL(blob);
         });
-    } catch (err) {
-        console.error("[DEBUG] Error loading image:", err);
+    } catch {
         return null;
     }
 }
 
-// Generate and download PDF with max info
+// Generate and download PDF
 async function generatePDF(userInfo, reason, platform) {
-    if (!userInfo) {
-        console.log("[DEBUG] No user info, skipping PDF generation");
-        return;
-    }
-
-    console.log("[DEBUG] Generating PDF for user:", userInfo.username);
+    if (!userInfo) return;
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -157,37 +154,11 @@ async function generatePDF(userInfo, reason, platform) {
     doc.text(`Display Name: ${userInfo.displayName}`, 10, 60);
     doc.text(`Created: ${new Date(userInfo.created).toLocaleString()}`, 10, 70);
     doc.text(`Banned: ${userInfo.banned}`, 10, 80);
-    doc.text(`Description: ${userInfo.description || "N/A"}`, 10, 90);
+    doc.text(`Description: ${userInfo.description}`, 10, 90);
     doc.text(`Friends: ${userInfo.friendsCount}`, 10, 100);
     doc.text(`Followers: ${userInfo.followersCount}`, 10, 110);
-
-    // Groups
-    let groupY = 120;
-    if (userInfo.groups.data && userInfo.groups.data.length > 0) {
-        doc.text(`Groups:`, 10, groupY);
-        userInfo.groups.data.forEach(group => {
-            groupY += 10;
-            doc.text(`- ${group.name} (Role: ${group.role.name})`, 12, groupY);
-        });
-    }
-
-    // Badges
-    let badgeY = groupY + 10;
-    if (userInfo.badges && userInfo.badges.length > 0) {
-        doc.text(`Badges:`, 10, badgeY);
-        userInfo.badges.forEach(badge => {
-            badgeY += 10;
-            doc.text(`- ${badge.name}`, 12, badgeY);
-        });
-    }
-
-    // Presence info
-    const presenceY = badgeY + 10;
-    if (userInfo.presence) {
-        const lastOnline = userInfo.presence.lastOnline ? new Date(userInfo.presence.lastOnline).toLocaleString() : "N/A";
-        doc.text(`Last Online: ${lastOnline}`, 10, presenceY);
-        doc.text(`Game/Location: ${userInfo.presence.placeId ?? "N/A"}`, 10, presenceY + 10);
-    }
+    doc.text(`Groups: ${userInfo.groupsCount}`, 10, 120);
+    doc.text(`Badges: ${userInfo.badgesCount}`, 10, 130);
 
     const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
     if (avatarDataURL) doc.addImage(avatarDataURL, "PNG", 150, 20, 40, 40);
