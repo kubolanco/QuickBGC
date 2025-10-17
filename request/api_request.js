@@ -1,7 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("bgcForm");
-
-    form.addEventListener("submit", function (event) {
+    form.addEventListener("submit", event => {
         event.preventDefault();
         handleBGCFormSubmit();
     });
@@ -19,7 +18,7 @@ async function handleBGCFormSubmit() {
     try {
         if (platform.toLowerCase() === "roblox") {
             const userInfo = await getRobloxUserData(usernameOrId);
-            if (userInfo) await generatePDF(userInfo, reason, platform);
+            if (userInfo) displayResultModal(userInfo, reason, platform);
         }
     } catch (err) {
         console.error("[ERROR] handleBGCFormSubmit:", err);
@@ -53,15 +52,6 @@ async function getRobloxUserData(input) {
     const avatarData = await fetchFromWorker(
         `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
     );
-
-    // Friends
-    let friendsCount = 0;
-    try {
-        const friendsData = await fetchFromWorker(
-            `https://friends.roblox.com/v1/users/${userId}/friends/count`
-        );
-        friendsCount = friendsData.count || 0;
-    } catch {}
 
     // Groups
     let groupsList = [];
@@ -100,89 +90,60 @@ async function getRobloxUserData(input) {
         created: userData.created,
         banned: userData.isBanned,
         avatar: avatarData?.data?.[0]?.imageUrl || null,
-        friendsCount,
         badgesCount,
         favoritesCount,
         groupsList
     };
 }
 
-async function loadImageAsDataURL(url) {
-    try {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        return await new Promise(resolve => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-        });
-    } catch {
-        return null;
-    }
-}
+function displayResultModal(userInfo, reason, platform) {
+    // Create modal dynamically if it doesn’t exist
+    let modalHTML = `
+    <div class="modal fade" id="resultModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+          <div class="modal-header bg-dark text-white">
+            <h5 class="modal-title">${platform} Background Check</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-danger text-center fw-bold mb-3">⚠ WARNING: This tool can be inaccurate.</p>
+            <div class="text-center mb-3">
+              <img src="${userInfo.avatar}" alt="Avatar" class="rounded img-fluid" style="max-width:150px;">
+            </div>
+            <ul class="list-group">
+              <li class="list-group-item"><strong>Reason:</strong> ${reason}</li>
+              <li class="list-group-item"><strong>ID:</strong> ${userInfo.id}</li>
+              <li class="list-group-item"><strong>Username:</strong> ${userInfo.username}</li>
+              <li class="list-group-item"><strong>Display Name:</strong> ${userInfo.displayName}</li>
+              <li class="list-group-item"><strong>Description:</strong> ${userInfo.description}</li>
+              <li class="list-group-item"><strong>Created:</strong> ${new Date(userInfo.created).toLocaleString()}</li>
+              <li class="list-group-item"><strong>Banned:</strong> ${userInfo.banned}</li>
+              <li class="list-group-item"><strong>Badges:</strong> ${userInfo.badgesCount}</li>
+              <li class="list-group-item"><strong>Favorite Games:</strong> ${userInfo.favoritesCount}</li>
+              <li class="list-group-item"><strong>Groups:</strong>
+                <ul class="mt-2">
+                  ${userInfo.groupsList.length
+                    ? userInfo.groupsList.map(g => `<li>${g}</li>`).join("")
+                    : "<li>No groups found</li>"
+                  }
+                </ul>
+              </li>
+            </ul>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
 
-async function generatePDF(userInfo, reason, platform) {
-    if (!userInfo) return;
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    // Remove existing modal if any
+    const existing = document.getElementById("resultModal");
+    if (existing) existing.remove();
 
-    // Red warning header
-    doc.setTextColor(255, 0, 0);
-    doc.setFontSize(12);
-    doc.text("⚠ WARNING: This tool can be inaccurate.", 10, 15);
+    document.body.insertAdjacentHTML("beforeend", modalHTML);
 
-    // Title
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(18);
-    doc.text(`${platform} Background Check Report`, 105, 30, { align: "center" });
-
-    // Divider
-    doc.setLineWidth(0.5);
-    doc.line(10, 35, 200, 35);
-
-    doc.setFontSize(12);
-    let y = 45;
-    const lineHeight = 8;
-
-    const fields = [
-        ["Reason", reason],
-        ["ID", userInfo.id],
-        ["Username", userInfo.username],
-        ["Display Name", userInfo.displayName],
-        ["Description", userInfo.description],
-        ["Created", new Date(userInfo.created).toLocaleString()],
-        ["Banned", userInfo.banned],
-        ["Friends", userInfo.friendsCount],
-        ["Badges", userInfo.badgesCount],
-        ["Favorite Games", userInfo.favoritesCount],
-        ["Groups", userInfo.groupsList.length ? userInfo.groupsList.join(", ") : "None"]
-    ];
-
-    fields.forEach(([label, value]) => {
-        doc.setFont("helvetica", "bold");
-        doc.text(`${label}:`, 15, y);
-        doc.setFont("helvetica", "normal");
-
-        const splitValue = doc.splitTextToSize(String(value), 170);
-        doc.text(splitValue, 45, y);
-        y += splitValue.length * (lineHeight - 2);
-        y += 2;
-        if (y > 260) { // new page if content is too long
-            doc.addPage();
-            y = 20;
-        }
-    });
-
-    // Avatar top-right
-    const avatarDataURL = await loadImageAsDataURL(userInfo.avatar);
-    if (avatarDataURL) {
-        doc.addImage(avatarDataURL, "PNG", 160, 40, 35, 35);
-    }
-
-    // Footer
-    doc.setFontSize(10);
-    doc.setTextColor(150, 150, 150);
-    doc.text("Generated by QuickBGC • Roblox Public API Data", 10, 285);
-
-    doc.save(`${userInfo.username}_BGC_Report.pdf`);
+    const modal = new bootstrap.Modal(document.getElementById("resultModal"));
+    modal.show();
 }
