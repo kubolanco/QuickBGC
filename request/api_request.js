@@ -24,7 +24,7 @@ async function getRobloxUserData(input) {
 
     // resolve username -> ID if input is not a number
     if (isNaN(input)) {
-        const search = await fetchFromWorker(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=25`);
+        const search = await fetchFromWorker(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`);
         if (!search.data || !search.data.length) throw new Error("User not found");
         userId = search.data[0].id;
         await sleep(200);
