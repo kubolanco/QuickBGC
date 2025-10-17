@@ -8,6 +8,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
 const WORKER_URL = "https://backendquickbgc.kubo-lanco.workers.dev/?url=";
 
+// small delay helper (prevents rate-limit)
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// safely fetch via worker
+async function fetchFromWorker(url) {
+    const fullUrl = `${WORKER_URL}${encodeURIComponent(url)}`;
+    const response = await fetch(fullUrl);
+    if (!response.ok) throw new Error(`Failed fetch: ${url}`);
+    return await response.json();
+}
+
 async function handleBGCFormSubmit() {
     const usernameOrId = document.getElementById("username").value.trim();
     const platform = document.getElementById("platform").value;
@@ -17,26 +30,21 @@ async function handleBGCFormSubmit() {
 
     try {
         if (platform.toLowerCase() === "roblox") {
-            const userInfo = await getRobloxUserData(usernameOrId);
-            if (userInfo) displayResultModal(userInfo, reason, platform);
+            const userData = await getRobloxUserData(usernameOrId);
+            if (userData) showResultModal(userData, reason, platform);
+        } else {
+            alert("Only Roblox checks are supported for now.");
         }
     } catch (err) {
         console.error("[ERROR] handleBGCFormSubmit:", err);
+        showResultModal({ error: "Failed to fetch data." }, reason, platform);
     }
-}
-
-async function fetchFromWorker(url) {
-    const response = await fetch(`${WORKER_URL}${encodeURIComponent(url)}`);
-    if (!response.ok) throw new Error(`Failed fetch: ${url}`);
-    const contentType = response.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) return await response.json();
-    return await response.text();
 }
 
 async function getRobloxUserData(input) {
     let userId = input;
 
-    // Resolve username → ID
+    // Resolve username → ID if needed
     if (isNaN(input)) {
         const searchData = await fetchFromWorker(
             `https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`
@@ -45,105 +53,104 @@ async function getRobloxUserData(input) {
         userId = searchData.data[0].id;
     }
 
-    // Basic user info
+    await sleep(200);
     const userData = await fetchFromWorker(`https://users.roblox.com/v1/users/${userId}`);
 
-    // Avatar
+    await sleep(200);
     const avatarData = await fetchFromWorker(
         `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
     );
 
-    // Groups
-    let groupsList = [];
+    await sleep(200);
+    let groups = [];
     try {
-        const groups = await fetchFromWorker(
+        const groupsData = await fetchFromWorker(
             `https://groups.roblox.com/v2/users/${userId}/groups/roles`
         );
-        groupsList = groups.data
-            ? groups.data.map(g => `${g.group.name} (${g.role.name})`)
+        groups = groupsData.data
+            ? groupsData.data.map(g => `${g.group.name} (${g.role.name})`)
             : [];
-    } catch {}
+    } catch {
+        groups = ["Unavailable"];
+    }
 
-    // Badges
-    let badgesCount = 0;
+    await sleep(200);
+    let badges = [];
     try {
-        const badges = await fetchFromWorker(
+        const badgesData = await fetchFromWorker(
             `https://badges.roblox.com/v1/users/${userId}/badges?limit=100`
         );
-        badgesCount = badges.data ? badges.data.length : 0;
-    } catch {}
-
-    // Favorite games count
-    let favoritesCount = 0;
-    try {
-        const favorites = await fetchFromWorker(
-            `https://games.roblox.com/v2/users/${userId}/favorite/games`
-        );
-        favoritesCount = favorites.data ? favorites.data.length : 0;
-    } catch {}
+        badges = badgesData.data
+            ? badgesData.data.map(b => b.name)
+            : [];
+    } catch {
+        badges = ["Unavailable"];
+    }
 
     return {
         id: userData.id,
         username: userData.name,
         displayName: userData.displayName,
-        description: userData.description || "None",
         created: userData.created,
         banned: userData.isBanned,
-        avatar: avatarData?.data?.[0]?.imageUrl || null,
-        badgesCount,
-        favoritesCount,
-        groupsList
+        avatar: avatarData.data?.[0]?.imageUrl || "",
+        groups,
+        badges
     };
 }
 
-function displayResultModal(userInfo, reason, platform) {
-    // Create modal dynamically if it doesn’t exist
-    let modalHTML = `
-    <div class="modal fade" id="resultModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content border-0 shadow">
-          <div class="modal-header bg-dark text-white">
-            <h5 class="modal-title">${platform} Background Check</h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <p class="text-danger text-center fw-bold mb-3">⚠ WARNING: This tool can be inaccurate.</p>
-            <div class="text-center mb-3">
-              <img src="${userInfo.avatar}" alt="Avatar" class="rounded img-fluid" style="max-width:150px;">
+// show Bootstrap modal
+function showResultModal(user, reason, platform) {
+    // create modal container if it doesn’t exist
+    let modalEl = document.getElementById("resultModal");
+    if (!modalEl) {
+        modalEl = document.createElement("div");
+        modalEl.className = "modal fade";
+        modalEl.id = "resultModal";
+        modalEl.tabIndex = -1;
+        modalEl.innerHTML = `
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">⚠ WARNING: This tool can be inaccurate.</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body" id="modalBody"></div>
             </div>
-            <ul class="list-group">
-              <li class="list-group-item"><strong>Reason:</strong> ${reason}</li>
-              <li class="list-group-item"><strong>ID:</strong> ${userInfo.id}</li>
-              <li class="list-group-item"><strong>Username:</strong> ${userInfo.username}</li>
-              <li class="list-group-item"><strong>Display Name:</strong> ${userInfo.displayName}</li>
-              <li class="list-group-item"><strong>Description:</strong> ${userInfo.description}</li>
-              <li class="list-group-item"><strong>Created:</strong> ${new Date(userInfo.created).toLocaleString()}</li>
-              <li class="list-group-item"><strong>Banned:</strong> ${userInfo.banned}</li>
-              <li class="list-group-item"><strong>Badges:</strong> ${userInfo.badgesCount}</li>
-              <li class="list-group-item"><strong>Favorite Games:</strong> ${userInfo.favoritesCount}</li>
-              <li class="list-group-item"><strong>Groups:</strong>
-                <ul class="mt-2">
-                  ${userInfo.groupsList.length
-                    ? userInfo.groupsList.map(g => `<li>${g}</li>`).join("")
-                    : "<li>No groups found</li>"
-                  }
-                </ul>
-              </li>
-            </ul>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          </div>
-        </div>
-      </div>
-    </div>`;
+        </div>`;
+        document.body.appendChild(modalEl);
+    }
 
-    // Remove existing modal if any
-    const existing = document.getElementById("resultModal");
-    if (existing) existing.remove();
+    const body = document.getElementById("modalBody");
 
-    document.body.insertAdjacentHTML("beforeend", modalHTML);
+    if (user.error) {
+        body.innerHTML = `<p class="text-danger">${user.error}</p>`;
+    } else {
+        const date = new Date(user.created).toLocaleString();
+        const groupsHTML = user.groups.length ? user.groups.map(g => `<li>${g}</li>`).join("") : "<li>None</li>";
+        const badgesHTML = user.badges.length ? user.badges.map(b => `<li>${b}</li>`).join("") : "<li>None</li>";
 
-    const modal = new bootstrap.Modal(document.getElementById("resultModal"));
+        body.innerHTML = `
+            <div class="text-center mb-3">
+                <img src="${user.avatar}" alt="Avatar" class="rounded-circle shadow-sm" width="120" height="120">
+            </div>
+            <h5 class="text-center mb-3">${platform} Background Check Report</h5>
+            <p><strong>Reason:</strong> ${reason}</p>
+            <p><strong>ID:</strong> ${user.id}</p>
+            <p><strong>Username:</strong> ${user.username}</p>
+            <p><strong>Display Name:</strong> ${user.displayName}</p>
+            <p><strong>Created:</strong> ${date}</p>
+            <p><strong>Banned:</strong> ${user.banned}</p>
+            <hr>
+            <h6>Groups (${user.groups.length}):</h6>
+            <ul>${groupsHTML}</ul>
+            <hr>
+            <h6>Badges (${user.badges.length}):</h6>
+            <ul>${badgesHTML}</ul>
+        `;
+    }
+
+    // show modal
+    const modal = new bootstrap.Modal(modalEl);
     modal.show();
 }
