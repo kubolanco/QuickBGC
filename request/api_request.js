@@ -18,9 +18,11 @@ async function getRobloxUserData(input) {
 
     // Resolve username to user ID
     if (isNaN(input)) {
-        const search = await fetchFromWorker(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=10`);
-        if (!search.data || search.data.length === 0) throw new Error("User not found");
-        userId = search.data[0].id;
+        const search = await fetchFromWorker(`https://users.roblox.com/v1/users/search?keyword=${input}&limit=20`);
+       if (!search.data || search.data.length === 0) {
+        displayErrorModal(`User "${input}" not found.`);
+        return null;
+}
     }
 
     // Fetch full user profile info
